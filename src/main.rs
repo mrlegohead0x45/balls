@@ -1,7 +1,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use macroquad::prelude as mq;
-use nalgebra::{Matrix2, Point2, Rotation2, UnitVector2, Vector2};
+use nalgebra::{Matrix2, Matrix4, Point2, Rotation2, UnitVector2, Vector2, Vector4};
 
 #[derive(Debug)]
 struct Parameters {
@@ -99,7 +99,7 @@ fn collide_line_particle(l: &Line, p: &Particle, params: &Parameters) -> Vector2
         v.n = -e * u.n
     */
 
-    let w = Matrix2::new(line.x, line.y, normal.x, normal.y)
+    let w = Matrix2::from_rows(&[line.transpose(), normal.transpose()])
         .try_inverse()
         .unwrap()
         * Vector2::new(
@@ -115,9 +115,31 @@ fn collide_particles(
     q: &Particle,
     params: &Parameters,
 ) -> (Vector2<f32>, Vector2<f32>) {
+    // println!("{:?} {:?}", p.velocity, q.velocity);
     let normal = UnitVector2::new_normalize(p.position - q.position);
     let line = Rotation2::new(FRAC_PI_2) * normal;
-    todo!()
+
+    #[rustfmt::skip]
+    let coeff_mat = Matrix4::new(
+        p.mass * normal.x, p.mass * normal.y, q.mass * normal.x, q.mass * normal.y,
+       -normal.x,         -normal.y,          normal.x,          normal.y,
+        line.x,            line.y,            0.0,               0.0,
+        0.0,               0.0,               line.x,            line.y,
+    );
+    let res_vec = Vector4::new(
+        p.mass * p.velocity.dot(&normal) + q.mass * q.velocity.dot(&normal),
+        params.restitution_pp * (p.velocity - q.velocity).dot(&normal),
+        p.velocity.dot(&line),
+        q.velocity.dot(&line),
+    );
+
+    let w = coeff_mat.try_inverse().unwrap() * res_vec;
+    let vp = Vector2::new(w.x, w.y);
+    let vq = Vector2::new(w.z, w.w);
+
+    // todo!()
+    // println!("{:?} {:?}", vp, vq);
+    (vp, vq)
     //
 }
 
@@ -127,17 +149,23 @@ async fn main() {
     let params = Parameters::default();
 
     let mut entities = vec![
-        // Entity::Particle(Particle {
-        //     mass: 1.0,
-        //     radius: 10.0,
-        //     position: Point2::new(100.0, 300.0),
-        //     velocity: Vector2::new(1.0, 0.0),
-        // }),
-        Entity::Line(Line {
-            start: Point2::new(0.0, 200.0),
-            end: Point2::new(800.0, 200.0),
-            // unit_normal: Vector2::new(0.0, 1.0),
+        Entity::Particle(Particle {
+            mass: 1.0,
+            radius: 10.0,
+            position: Point2::new(350.0, 50.0),
+            velocity: Vector2::new(10.0, 0.0),
         }),
+        Entity::Particle(Particle {
+            mass: 1.0,
+            radius: 10.0,
+            position: Point2::new(800.0 - 350.0, 50.0),
+            velocity: Vector2::new(-10.0, 0.0),
+        }),
+        // Entity::Line(Line {
+        //     start: Point2::new(0.0, 200.0),
+        //     end: Point2::new(800.0, 200.0),
+        //     // unit_normal: Vector2::new(0.0, 1.0),
+        // }),
     ];
 
     let mut do_time = true;
@@ -147,6 +175,7 @@ async fn main() {
     loop {
         mq::clear_background(mq::BLACK);
         let (width, height) = (mq::screen_width(), mq::screen_height());
+        // println!("{:?}", (width, height));
 
         if mq::is_mouse_button_pressed(mq::MouseButton::Left) {
             let pos = mq::mouse_position();
